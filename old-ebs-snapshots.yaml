@@ -1,0 +1,112 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  AWS DevOps Agent custom agent (read-only) that finds old and orphaned EBS
+  snapshots and estimates their monthly cost. Deployed as its own stack so it
+  can be picked independently from the cost-optimizer catalog.
+
+Parameters:
+  AgentSpaceId:
+    Type: String
+    Description: The ID of the Agent Space that will own this custom agent.
+  ScheduleExpression:
+    Type: String
+    Default: rate(7 days)
+    Description: EventBridge rate() or cron() expression for the recurring run.
+  TriggerStatus:
+    Type: String
+    Default: Active
+    AllowedValues: [Active, Inactive]
+    Description: Set Inactive to deploy the agent without running it on a schedule.
+  SnapshotAgeThresholdDays:
+    Type: String
+    Default: "30,90"
+    Description: >-
+      Comma-separated age thresholds in days used to flag old snapshots
+      (default flags at 30 and 90 days).
+
+Resources:
+  Agent:
+    Type: AWS::DevOpsAgent::Asset
+    Properties:
+      AgentSpaceId: !Ref AgentSpaceId
+      AssetType: custom_agent
+      Metadata:
+        name: cost-old-ebs-snapshots
+        tools:
+          - use_aws
+          - query_cloudwatch_logs
+      Files:
+        - Path: AGENT.md
+          ContentText: !Sub |
+            You are the Old EBS Snapshots cost agent. You observe and
+            recommend; you never change anything.
+
+            ## Goal
+            Find EBS snapshots owned by the associated accounts that are older
+            than the configured age thresholds (${SnapshotAgeThresholdDays}
+            days), highlight orphaned snapshots whose source volume no longer
+            exists, and estimate the monthly cost of each.
+
+            ## Approach
+            1. Enumerate opted-in regions with `ec2 describe-regions` unless the
+               user narrows scope. Scan each region.
+            2. In each region and account, list owned snapshots:
+               `ec2 describe-snapshots --owner-ids self`.
+            3. Compute days since creation and flag snapshots older than each
+               threshold in ${SnapshotAgeThresholdDays} days.
+            4. Determine whether the source volume still exists by
+               cross-referencing `ec2 describe-volumes`; flag orphaned
+               snapshots (source volume deleted) as higher priority.
+            5. For each finding capture: snapshot ID, source volume ID, size
+               (GiB), region, account ID, age in days, orphaned yes/no.
+               Estimate monthly cost from snapshot $/GiB-month for the region;
+               query `pricing get-products` when a precise figure is needed.
+
+            ## Constraints
+            - Read-only only: run only `describe*`, `list*`, `get*`. Never
+              delete, deregister, or otherwise mutate anything.
+            - Always assume production. A snapshot may be an intentional backup;
+              report the evidence and never assume it is safe to delete.
+            - Record account ID and region on every finding.
+            - Continue on errors: note missing-permission failures in Caveats
+              and keep scanning.
+            - Do NOT include Savings Plans or Reserved Instance recommendations.
+
+            ## Output
+            Produce a single artifact titled "Old EBS Snapshots — Cost Report"
+            with:
+            1. Executive summary — total estimated monthly and annual savings,
+               count of snapshots by threshold bucket, count orphaned, accounts
+               and regions scanned, thresholds used.
+            2. Findings table sorted by estimated monthly savings (highest
+               first): snapshot ID, source volume ID, region, account ID, size,
+               age in days, orphaned yes/no, estimated monthly savings,
+               estimated annual savings, and a short recommended (non-executed)
+               action.
+            3. Suggested manual actions — optional, clearly labeled
+               "suggested manual actions — not executed". Text only.
+            4. Caveats — data gaps, missing permissions, estimation assumptions.
+
+  Schedule:
+    Type: AWS::DevOpsAgent::Trigger
+    Properties:
+      AgentSpaceId: !Ref AgentSpaceId
+      Type: TIME_BASED
+      Condition:
+        Schedule:
+          Expression: !Ref ScheduleExpression
+      Action:
+        actionType: create:task
+        task:
+          agent: !Sub
+            - custom:${AssetId}
+            - AssetId: !GetAtt Agent.AssetId
+      Status: !Ref TriggerStatus
+
+Outputs:
+  AgentAssetId:
+    Description: The asset ID of the deployed custom agent.
+    Value: !GetAtt Agent.AssetId
+  AgentArn:
+    Description: The ARN of the deployed custom agent.
+    Value: !GetAtt Agent.Arn

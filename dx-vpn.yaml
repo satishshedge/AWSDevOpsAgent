@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  AWS DevOps Agent custom agent (read-only) that generates Direct Connect / VPN Cost Optimization
+  recommendations. Deployed as its own stack so it can be picked independently
+  from the service cost-optimizer catalog.
+
+Parameters:
+  AgentSpaceId:
+    Type: String
+    Description: The ID of the Agent Space that will own this custom agent.
+  ScheduleExpression:
+    Type: String
+    Default: rate(7 days)
+    Description: EventBridge rate() or cron() expression for the recurring run.
+  TriggerStatus:
+    Type: String
+    Default: Active
+    AllowedValues: [Active, Inactive]
+    Description: Set Inactive to deploy the agent without running it on a schedule.
+  LookbackDays:
+    Type: String
+    Default: "14"
+    Description: Utilization lookback window in days for CloudWatch metrics.
+
+Resources:
+  Agent:
+    Type: AWS::DevOpsAgent::Asset
+    Properties:
+      AgentSpaceId: !Ref AgentSpaceId
+      AssetType: custom_agent
+      Metadata:
+        name: cost-dx-vpn
+        tools:
+          - use_aws
+          - query_cloudwatch_logs
+        # skills:   # import 'dx-vpn-troubleshooting' into the Agent Space first, then enable
+        #   - dx-vpn-troubleshooting
+      Files:
+        - Path: AGENT.md
+          ContentText: !Sub |
+            You are the Direct Connect / VPN Cost Optimization agent. You observe and recommend; you
+            never change anything.
+
+            ## Goal
+            Find Direct Connect / VPN waste — VPN connections with tunnels down or no traffic still billing hourly, and idle DX virtual interfaces.
+
+            ## Approach
+            Enumerate opted-in regions with `ec2 describe-regions` unless the user
+            narrows scope, then scan each region and account. Read utilization from
+            CloudWatch over the last ${LookbackDays} days where relevant. For every finding capture the resource
+            identifier, region, account ID, the supporting evidence, and an estimated
+            monthly (and annual) saving, querying `pricing get-products` when a precise
+            figure is needed and labeling estimates.
+
+            1. List VPN connections (`ec2 describe-vpn-connections`) and DX connections/VIFs (`directconnect describe-connections`, `describe-virtual-interfaces`).
+            2. Read tunnel state and traffic from CloudWatch over the lookback window; flag idle/down VPNs.
+            3. Flag DX virtual interfaces with negligible traffic.
+
+            Savings levers to look for: idle VPN connections, unused DX virtual interfaces.
+
+            ## Constraints
+            - Read-only only: run only `describe*`, `list*`, `get*`. Never create,
+              modify, delete, stop, resize, or otherwise mutate anything.
+            - Always assume production. Report the evidence behind each finding and
+              never assume a resource is safe to change or remove.
+            - Record account ID and region on every finding.
+            - Continue on errors: note missing-permission failures in Caveats and
+              keep scanning.
+            - Do NOT include Savings Plans or Reserved Instance purchase
+              recommendations; this agent covers resource-level waste and rightsizing.
+
+            ## Output
+            Produce a single artifact titled "Direct Connect / VPN Cost Optimization Report" with:
+            1. Executive summary — total estimated monthly and annual savings, count of
+               findings, accounts and regions scanned, lookback window used.
+            2. Findings table sorted by estimated monthly savings (highest first):
+               resource ID, region, account ID, evidence, estimated monthly savings,
+               estimated annual savings, and a short recommended (non-executed) action.
+            3. Suggested manual actions — optional, clearly labeled "suggested manual
+               actions — not executed". Text only.
+            4. Caveats — data gaps, missing permissions, estimation assumptions.
+
+  Schedule:
+    Type: AWS::DevOpsAgent::Trigger
+    Properties:
+      AgentSpaceId: !Ref AgentSpaceId
+      Type: TIME_BASED
+      Condition:
+        Schedule:
+          Expression: !Ref ScheduleExpression
+      Action:
+        actionType: create:task
+        task:
+          agent: !Sub
+            - custom:${AssetId}
+            - AssetId: !GetAtt Agent.AssetId
+      Status: !Ref TriggerStatus
+
+Outputs:
+  AgentAssetId:
+    Description: The asset ID of the deployed custom agent.
+    Value: !GetAtt Agent.AssetId
+  AgentArn:
+    Description: The ARN of the deployed custom agent.
+    Value: !GetAtt Agent.Arn

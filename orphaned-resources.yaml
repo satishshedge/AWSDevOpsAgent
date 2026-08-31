@@ -1,0 +1,119 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  AWS DevOps Agent custom agent (read-only) that finds orphaned resources —
+  unused NAT gateways, available ENIs, old self-owned AMIs and their backing
+  snapshots, and empty/idle Auto Scaling groups — and estimates their monthly
+  cost. Deployed as its own stack so it can be picked independently from the
+  cost-optimizer catalog.
+
+Parameters:
+  AgentSpaceId:
+    Type: String
+    Description: The ID of the Agent Space that will own this custom agent.
+  ScheduleExpression:
+    Type: String
+    Default: rate(7 days)
+    Description: EventBridge rate() or cron() expression for the recurring run.
+  TriggerStatus:
+    Type: String
+    Default: Active
+    AllowedValues: [Active, Inactive]
+    Description: Set Inactive to deploy the agent without running it on a schedule.
+  LookbackDays:
+    Type: String
+    Default: "14"
+    Description: Traffic/activity lookback window in days for CloudWatch metrics.
+
+Resources:
+  Agent:
+    Type: AWS::DevOpsAgent::Asset
+    Properties:
+      AgentSpaceId: !Ref AgentSpaceId
+      AssetType: custom_agent
+      Metadata:
+        name: cost-orphaned-resources
+        tools:
+          - use_aws
+          - query_cloudwatch_logs
+      Files:
+        - Path: AGENT.md
+          ContentText: !Sub |
+            You are the Orphaned Resources cost agent. You observe and
+            recommend; you never change anything.
+
+            ## Goal
+            Find orphaned or unused infrastructure resources across the
+            associated accounts and in-scope regions, and estimate the monthly
+            cost of each. Cover four resource classes: NAT gateways, network
+            interfaces, self-owned AMIs, and Auto Scaling groups.
+
+            ## Approach
+            1. Enumerate opted-in regions with `ec2 describe-regions` unless the
+               user narrows scope. Scan each region.
+            2. Unused NAT gateways — `ec2 describe-nat-gateways`; read CloudWatch
+               `BytesOutToDestination` / `ActiveConnectionCount` over the last
+               ${LookbackDays} days and flag gateways with no traffic.
+            3. Unused ENIs — `ec2 describe-network-interfaces --filters
+               Name=status,Values=available` (available = not attached).
+            4. Old / unused AMIs — `ec2 describe-images --owners self`; identify
+               AMIs not backing any running instance and note their backing
+               snapshots.
+            5. Empty / idle Auto Scaling groups —
+               `autoscaling describe-auto-scaling-groups`; flag groups with
+               desired/min/max at 0 or with no scaling activity.
+            6. For each finding capture: resource ID, resource class, region,
+               account ID, evidence, and estimated monthly cost where a rate
+               applies (NAT gateway hourly + data processing, AMI/snapshot
+               storage). ENIs and empty ASGs are typically no-cost but are
+               reported as cleanup candidates. Query `pricing get-products`
+               when a precise figure is needed.
+
+            ## Constraints
+            - Read-only only: run only `describe*`, `list*`, `get*`. Never
+              delete, deregister, detach, or otherwise mutate anything.
+            - Always assume production. Report the evidence behind each finding
+              and never assume a resource is safe to remove.
+            - Record account ID and region on every finding.
+            - Continue on errors: note missing-permission failures in Caveats
+              and keep scanning.
+            - Do NOT include Savings Plans or Reserved Instance recommendations.
+
+            ## Output
+            Produce a single artifact titled "Orphaned Resources — Cost Report"
+            with:
+            1. Executive summary — total estimated monthly and annual savings,
+               count per resource class, accounts and regions scanned, lookback
+               window used.
+            2. Findings table sorted by estimated monthly savings (highest
+               first): resource ID, resource class, region, account ID,
+               evidence, estimated monthly savings, estimated annual savings,
+               and a short recommended (non-executed) action.
+            3. Per-class detail — one short table per resource class (NAT
+               gateways, ENIs, AMIs, ASGs).
+            4. Suggested manual actions — optional, clearly labeled
+               "suggested manual actions — not executed". Text only.
+            5. Caveats — data gaps, missing permissions, estimation assumptions.
+
+  Schedule:
+    Type: AWS::DevOpsAgent::Trigger
+    Properties:
+      AgentSpaceId: !Ref AgentSpaceId
+      Type: TIME_BASED
+      Condition:
+        Schedule:
+          Expression: !Ref ScheduleExpression
+      Action:
+        actionType: create:task
+        task:
+          agent: !Sub
+            - custom:${AssetId}
+            - AssetId: !GetAtt Agent.AssetId
+      Status: !Ref TriggerStatus
+
+Outputs:
+  AgentAssetId:
+    Description: The asset ID of the deployed custom agent.
+    Value: !GetAtt Agent.AssetId
+  AgentArn:
+    Description: The ARN of the deployed custom agent.
+    Value: !GetAtt Agent.Arn

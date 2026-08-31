@@ -1,0 +1,99 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  AWS DevOps Agent custom agent (read-only) that finds unattached EBS volumes and
+  estimates their monthly cost. Deployed as its own stack so it can be picked
+  independently from the cost-optimizer catalog.
+
+Parameters:
+  AgentSpaceId:
+    Type: String
+    Description: The ID of the Agent Space that will own this custom agent.
+  ScheduleExpression:
+    Type: String
+    Default: rate(7 days)
+    Description: EventBridge rate() or cron() expression for the recurring run.
+  TriggerStatus:
+    Type: String
+    Default: Active
+    AllowedValues: [Active, Inactive]
+    Description: Set Inactive to deploy the agent without running it on a schedule.
+
+Resources:
+  Agent:
+    Type: AWS::DevOpsAgent::Asset
+    Properties:
+      AgentSpaceId: !Ref AgentSpaceId
+      AssetType: custom_agent
+      Metadata:
+        name: cost-unattached-ebs-volumes
+        tools:
+          - use_aws
+          - query_cloudwatch_logs
+      Files:
+        - Path: AGENT.md
+          ContentText: |
+            You are the Unattached EBS Volumes cost agent. You observe and
+            recommend; you never change anything.
+
+            ## Goal
+            Find EBS volumes that are not attached to any instance (state
+            `available`) across the associated accounts and in-scope regions,
+            and estimate the monthly cost of keeping each one.
+
+            ## Approach
+            1. Enumerate opted-in regions with `ec2 describe-regions` unless the
+               user narrows scope. Scan each region.
+            2. In each region and account, list unattached volumes:
+               `ec2 describe-volumes --filters Name=status,Values=available`.
+            3. For each volume capture: volume ID, size (GiB), type
+               (gp2/gp3/io1/io2/st1/sc1), region, account ID, creation age.
+            4. Estimate monthly cost from size, type, and region using current
+               public EBS $/GiB-month pricing. Query `pricing get-products` when
+               a precise figure is needed. Label estimates clearly.
+
+            ## Constraints
+            - Read-only only: run only `describe*`, `list*`, `get*`. Never
+              create, modify, delete, detach, or otherwise mutate anything.
+            - Always assume production. Report candidates with the evidence
+              behind each; never assume a volume is safe to delete.
+            - Record account ID and region on every finding.
+            - Continue on errors: note missing-permission failures in Caveats
+              and keep scanning.
+            - Do NOT include Savings Plans or Reserved Instance recommendations.
+
+            ## Output
+            Produce a single artifact titled "Unattached EBS Volumes — Cost
+            Report" with:
+            1. Executive summary — total estimated monthly and annual savings,
+               count of volumes, accounts and regions scanned.
+            2. Findings table sorted by estimated monthly savings (highest
+               first): volume ID, region, account ID, size, type, age, estimated
+               monthly savings, estimated annual savings, and a short
+               recommended (non-executed) action.
+            3. Suggested manual actions — optional, clearly labeled
+               "suggested manual actions — not executed". Text only.
+            4. Caveats — data gaps, missing permissions, estimation assumptions.
+
+  Schedule:
+    Type: AWS::DevOpsAgent::Trigger
+    Properties:
+      AgentSpaceId: !Ref AgentSpaceId
+      Type: TIME_BASED
+      Condition:
+        Schedule:
+          Expression: !Ref ScheduleExpression
+      Action:
+        actionType: create:task
+        task:
+          agent: !Sub
+            - custom:${AssetId}
+            - AssetId: !GetAtt Agent.AssetId
+      Status: !Ref TriggerStatus
+
+Outputs:
+  AgentAssetId:
+    Description: The asset ID of the deployed custom agent.
+    Value: !GetAtt Agent.AssetId
+  AgentArn:
+    Description: The ARN of the deployed custom agent.
+    Value: !GetAtt Agent.Arn

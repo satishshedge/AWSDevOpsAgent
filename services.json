@@ -1,0 +1,624 @@
+{
+  "_comment": "Spec for the curated service cost-optimization agent catalog. Each entry generates one CloudFormation template via generate.py. Fields: key (file/stack suffix), agent (asset name, cost-<key>), title (report title), skill (matching *-troubleshooting skill in aws-samples/sample-ai-agent-skills, attached only if you import it and enable USE_SKILLS), lookback (true adds a LookbackDays param used for CloudWatch utilization), goal, approach (bullet lines), levers (savings levers). All agents get read-only tools use_aws + query_cloudwatch_logs.",
+  "services": [
+    {
+      "key": "eks-clusters",
+      "agent": "cost-eks-clusters",
+      "title": "EKS Cost Optimization",
+      "skill": "eks-troubleshooting",
+      "lookback": true,
+      "goal": "Find EKS cost waste — control-plane clusters with no or idle workloads, over-provisioned managed node groups, and Fargate profiles running underutilized pods.",
+      "approach": [
+        "List clusters with `eks list-clusters` / `eks describe-cluster`; each running control plane bills hourly even when idle.",
+        "List node groups (`eks list-nodegroups`, `eks describe-nodegroup`) and read node CPU/memory utilization from CloudWatch Container Insights over the lookback window; flag consistently low-utilization groups.",
+        "List Fargate profiles (`eks list-fargate-profiles`) and correlate with pod activity where visible.",
+        "Prefer Compute Optimizer where it covers the underlying nodes (`compute-optimizer get-auto-scaling-group-recommendations`)."
+      ],
+      "levers": "idle control planes, over-provisioned node groups, Graviton/Spot candidates, oversized Fargate pods"
+    },
+    {
+      "key": "ecs-fargate",
+      "agent": "cost-ecs-fargate",
+      "title": "ECS / Fargate Cost Optimization",
+      "skill": "ecs-troubleshooting",
+      "lookback": true,
+      "goal": "Find ECS/Fargate cost waste — services with over-provisioned task CPU/memory, idle services running desired-count above demand, and clusters with no running tasks.",
+      "approach": [
+        "List clusters and services (`ecs list-clusters`, `ecs list-services`, `ecs describe-services`).",
+        "Read task CPU/memory utilization from CloudWatch (`CPUUtilization`, `MemoryUtilization`) over the lookback window; flag services far below their task-definition reservations.",
+        "Flag services with desired count sustained above observed need, and empty clusters.",
+        "Prefer Compute Optimizer ECS recommendations (`compute-optimizer get-ecs-service-recommendations`)."
+      ],
+      "levers": "oversized task sizing, idle services, Fargate Spot / Graviton candidates"
+    },
+    {
+      "key": "auto-scaling-groups",
+      "agent": "cost-auto-scaling-groups",
+      "title": "Auto Scaling Group Cost Optimization",
+      "skill": "autoscaling-troubleshooting",
+      "lookback": true,
+      "goal": "Find Auto Scaling groups that waste money — groups holding more capacity than demand requires, no dynamic scaling policy, or fixed high min capacity.",
+      "approach": [
+        "List groups (`autoscaling describe-auto-scaling-groups`) and their policies (`autoscaling describe-policies`).",
+        "Read aggregate group CPU/utilization from CloudWatch over the lookback window; flag groups with high min/desired but low utilization.",
+        "Flag groups with no target-tracking/step scaling that sit at a fixed high capacity.",
+        "Prefer Compute Optimizer ASG recommendations (`compute-optimizer get-auto-scaling-group-recommendations`)."
+      ],
+      "levers": "over-fixed min capacity, missing dynamic scaling, Spot mix, rightsizing"
+    },
+    {
+      "key": "elastic-beanstalk",
+      "agent": "cost-elastic-beanstalk",
+      "title": "Elastic Beanstalk Cost Optimization",
+      "skill": "elasticbeanstalk-troubleshooting",
+      "lookback": true,
+      "goal": "Find Elastic Beanstalk environments that are idle or over-provisioned — environments with no traffic, oversized instance types, or load-balanced single-instance workloads.",
+      "approach": [
+        "List environments (`elasticbeanstalk describe-environments`) and resources (`elasticbeanstalk describe-environment-resources`).",
+        "Read underlying EC2/ELB utilization from CloudWatch over the lookback window; flag idle or low-traffic environments.",
+        "Flag load-balanced environments serving negligible traffic that could be single-instance."
+      ],
+      "levers": "idle environments, instance rightsizing, unnecessary load balancers"
+    },
+    {
+      "key": "batch",
+      "agent": "cost-batch",
+      "title": "AWS Batch Cost Optimization",
+      "skill": "batch-troubleshooting",
+      "lookback": true,
+      "goal": "Find AWS Batch waste — compute environments holding On-Demand capacity that could be Spot, high minvCpus keeping instances warm, and idle environments.",
+      "approach": [
+        "List compute environments and queues (`batch describe-compute-environments`, `batch describe-job-queues`).",
+        "Flag EC2 compute environments with minvCpus above 0 (warm capacity) and On-Demand where Spot is viable.",
+        "Read job history / instance utilization from CloudWatch over the lookback window to spot idle environments."
+      ],
+      "levers": "Spot vs On-Demand, minvCpus warm capacity, idle compute environments"
+    },
+    {
+      "key": "lightsail",
+      "agent": "cost-lightsail",
+      "title": "Lightsail Cost Optimization",
+      "skill": "lightsail-troubleshooting",
+      "lookback": true,
+      "goal": "Find Lightsail waste — idle instances, unattached static IPs, unused load balancers, and idle managed databases.",
+      "approach": [
+        "List instances, databases, load balancers, static IPs (`lightsail get-instances`, `get-relational-databases`, `get-load-balancers`, `get-static-ips`).",
+        "Read instance CPU/network metrics (`lightsail get-instance-metric-data`) over the lookback window; flag idle instances.",
+        "Flag static IPs not attached to a running instance and load balancers with no traffic."
+      ],
+      "levers": "idle instances, detached static IPs, unused load balancers, idle databases"
+    },
+    {
+      "key": "aurora",
+      "agent": "cost-aurora",
+      "title": "Aurora Cost Optimization",
+      "skill": "aurora-troubleshooting",
+      "lookback": true,
+      "goal": "Find Aurora cost waste — idle clusters, over-provisioned instances, provisioned clusters that could be Serverless v2, and excess reader replicas.",
+      "approach": [
+        "List clusters and instances (`rds describe-db-clusters`, `rds describe-db-instances`).",
+        "Read `DatabaseConnections`, `CPUUtilization`, and ServerlessDatabaseCapacity from CloudWatch over the lookback window; flag idle or low-utilization clusters.",
+        "Flag provisioned clusters with spiky/low usage as Serverless v2 candidates, and readers carrying little query load."
+      ],
+      "levers": "idle clusters, instance rightsizing, Serverless v2 candidates, excess readers"
+    },
+    {
+      "key": "rds-mysql",
+      "agent": "cost-rds-mysql",
+      "title": "RDS MySQL Cost Optimization",
+      "skill": "rds-mysql-troubleshooting",
+      "lookback": true,
+      "goal": "Find RDS MySQL cost waste — idle instances, over-provisioned instance classes and storage, unnecessary Multi-AZ on non-critical databases, and old manual snapshots.",
+      "approach": [
+        "List instances (`rds describe-db-instances --filters Name=engine,Values=mysql`).",
+        "Read `DatabaseConnections`, `CPUUtilization`, `FreeStorageSpace` from CloudWatch over the lookback window; flag idle and over-provisioned databases.",
+        "Flag over-allocated storage and Multi-AZ on databases that may not need it.",
+        "List manual snapshots (`rds describe-db-snapshots --snapshot-type manual`) and flag old ones."
+      ],
+      "levers": "idle instances, instance/storage rightsizing, Multi-AZ review, old snapshots"
+    },
+    {
+      "key": "rds-postgresql",
+      "agent": "cost-rds-postgresql",
+      "title": "RDS PostgreSQL Cost Optimization",
+      "skill": "rds-postgresql-troubleshooting",
+      "lookback": true,
+      "goal": "Find RDS PostgreSQL cost waste — idle instances, over-provisioned instance classes and storage, unnecessary Multi-AZ, and old manual snapshots.",
+      "approach": [
+        "List instances (`rds describe-db-instances --filters Name=engine,Values=postgres`).",
+        "Read `DatabaseConnections`, `CPUUtilization`, `FreeStorageSpace` from CloudWatch over the lookback window; flag idle and over-provisioned databases.",
+        "Flag over-allocated storage and Multi-AZ on databases that may not need it.",
+        "List manual snapshots (`rds describe-db-snapshots --snapshot-type manual`) and flag old ones."
+      ],
+      "levers": "idle instances, instance/storage rightsizing, Multi-AZ review, old snapshots"
+    },
+    {
+      "key": "rds-mariadb",
+      "agent": "cost-rds-mariadb",
+      "title": "RDS MariaDB Cost Optimization",
+      "skill": "rds-mariadb-troubleshooting",
+      "lookback": true,
+      "goal": "Find RDS MariaDB cost waste — idle instances, over-provisioned instance classes and storage, unnecessary Multi-AZ, and old manual snapshots.",
+      "approach": [
+        "List instances (`rds describe-db-instances --filters Name=engine,Values=mariadb`).",
+        "Read `DatabaseConnections`, `CPUUtilization`, `FreeStorageSpace` from CloudWatch over the lookback window; flag idle and over-provisioned databases.",
+        "Flag over-allocated storage and Multi-AZ on databases that may not need it.",
+        "List manual snapshots (`rds describe-db-snapshots --snapshot-type manual`) and flag old ones."
+      ],
+      "levers": "idle instances, instance/storage rightsizing, Multi-AZ review, old snapshots"
+    },
+    {
+      "key": "rds-oracle",
+      "agent": "cost-rds-oracle",
+      "title": "RDS Oracle Cost Optimization",
+      "skill": "rds-oracle-troubleshooting",
+      "lookback": true,
+      "goal": "Find RDS Oracle cost waste — idle instances, over-provisioned instance classes and storage, license-model review (LI vs BYOL), and old manual snapshots.",
+      "approach": [
+        "List instances (`rds describe-db-instances --filters Name=engine,Values=oracle-ee,oracle-se2`).",
+        "Read `DatabaseConnections`, `CPUUtilization`, `FreeStorageSpace` from CloudWatch over the lookback window; flag idle and over-provisioned databases.",
+        "Note license model and flag over-allocated storage.",
+        "List manual snapshots (`rds describe-db-snapshots --snapshot-type manual`) and flag old ones."
+      ],
+      "levers": "idle instances, instance/storage rightsizing, license model, old snapshots"
+    },
+    {
+      "key": "rds-sqlserver",
+      "agent": "cost-rds-sqlserver",
+      "title": "RDS SQL Server Cost Optimization",
+      "skill": "rds-sqlserver-troubleshooting",
+      "lookback": true,
+      "goal": "Find RDS SQL Server cost waste — idle instances, over-provisioned instance classes and storage, edition/license review, and old manual snapshots.",
+      "approach": [
+        "List instances (`rds describe-db-instances --filters Name=engine,Values=sqlserver-ee,sqlserver-se,sqlserver-ex,sqlserver-web`).",
+        "Read `DatabaseConnections`, `CPUUtilization`, `FreeStorageSpace` from CloudWatch over the lookback window; flag idle and over-provisioned databases.",
+        "Note edition (a lower edition may suffice) and flag over-allocated storage.",
+        "List manual snapshots (`rds describe-db-snapshots --snapshot-type manual`) and flag old ones."
+      ],
+      "levers": "idle instances, instance/storage rightsizing, edition review, old snapshots"
+    },
+    {
+      "key": "dynamodb",
+      "agent": "cost-dynamodb",
+      "title": "DynamoDB Cost Optimization",
+      "skill": "dynamodb-troubleshooting",
+      "lookback": true,
+      "goal": "Find DynamoDB cost waste — provisioned tables far above consumed capacity with no autoscaling, tables that would be cheaper on-demand (or vice versa), unused global secondary indexes, and idle global tables.",
+      "approach": [
+        "List and describe tables (`dynamodb list-tables`, `dynamodb describe-table`).",
+        "For PROVISIONED tables, compare provisioned vs consumed read/write capacity from CloudWatch over the lookback window; flag large gaps and missing autoscaling.",
+        "Flag steady low-traffic tables that suit provisioned, and spiky/low tables that suit on-demand.",
+        "Flag GSIs with negligible consumed capacity and idle global-table replicas."
+      ],
+      "levers": "capacity-mode fit, provisioned overshoot, missing autoscaling, unused GSIs"
+    },
+    {
+      "key": "elasticache",
+      "agent": "cost-elasticache",
+      "title": "ElastiCache Cost Optimization",
+      "skill": "elasticache-troubleshooting",
+      "lookback": true,
+      "goal": "Find ElastiCache waste — idle Redis/Memcached clusters, over-provisioned node types, and clusters with very low hit rates or memory usage.",
+      "approach": [
+        "List clusters and replication groups (`elasticache describe-cache-clusters`, `elasticache describe-replication-groups`).",
+        "Read `CPUUtilization`, `DatabaseMemoryUsagePercentage`/`BytesUsedForCache`, `CurrConnections`, and cache hit metrics from CloudWatch over the lookback window.",
+        "Flag idle clusters, oversized node types, and unnecessary replica counts."
+      ],
+      "levers": "idle clusters, node rightsizing, excess replicas, Graviton candidates"
+    },
+    {
+      "key": "memorydb",
+      "agent": "cost-memorydb",
+      "title": "MemoryDB Cost Optimization",
+      "skill": "memorydb-troubleshooting",
+      "lookback": true,
+      "goal": "Find MemoryDB waste — idle clusters, over-provisioned node types, and excess shard/replica counts.",
+      "approach": [
+        "List clusters (`memorydb describe-clusters`) and node metadata.",
+        "Read CPU, memory, and connection metrics from CloudWatch over the lookback window; flag idle and oversized clusters.",
+        "Flag shard/replica counts higher than the workload needs."
+      ],
+      "levers": "idle clusters, node rightsizing, excess shards/replicas"
+    },
+    {
+      "key": "redshift",
+      "agent": "cost-redshift",
+      "title": "Redshift Cost Optimization",
+      "skill": "redshift-troubleshooting",
+      "lookback": true,
+      "goal": "Find Redshift waste — idle provisioned clusters, clusters that could pause or move to Serverless, over-provisioned node counts, and unused Concurrency Scaling.",
+      "approach": [
+        "List clusters (`redshift describe-clusters`) and Serverless workgroups (`redshift-serverless list-workgroups`).",
+        "Read `CPUUtilization`, `DatabaseConnections`, query activity from CloudWatch over the lookback window; flag idle or low-utilization clusters.",
+        "Flag steady-idle provisioned clusters as pause/Serverless candidates and oversized node counts."
+      ],
+      "levers": "idle clusters, pause/Serverless candidates, node rightsizing"
+    },
+    {
+      "key": "documentdb",
+      "agent": "cost-documentdb",
+      "title": "DocumentDB Cost Optimization",
+      "skill": "documentdb-troubleshooting",
+      "lookback": true,
+      "goal": "Find DocumentDB waste — idle clusters, over-provisioned instance sizes, and excess replica instances.",
+      "approach": [
+        "List clusters and instances (`docdb describe-db-clusters`, `docdb describe-db-instances`).",
+        "Read `DatabaseConnections`, `CPUUtilization` from CloudWatch over the lookback window; flag idle and over-provisioned clusters.",
+        "Flag replica instances carrying little read load."
+      ],
+      "levers": "idle clusters, instance rightsizing, excess replicas"
+    },
+    {
+      "key": "neptune",
+      "agent": "cost-neptune",
+      "title": "Neptune Cost Optimization",
+      "skill": "neptune-troubleshooting",
+      "lookback": true,
+      "goal": "Find Neptune waste — idle clusters, over-provisioned instances, and Serverless capacity candidates.",
+      "approach": [
+        "List clusters and instances (`neptune describe-db-clusters`, `neptune describe-db-instances`).",
+        "Read `CPUUtilization`, connection/request metrics from CloudWatch over the lookback window; flag idle and over-provisioned clusters.",
+        "Flag low/spiky-usage clusters as Serverless candidates."
+      ],
+      "levers": "idle clusters, instance rightsizing, Serverless candidates"
+    },
+    {
+      "key": "keyspaces",
+      "agent": "cost-keyspaces",
+      "title": "Keyspaces Cost Optimization",
+      "skill": "keyspaces-troubleshooting",
+      "lookback": true,
+      "goal": "Find Keyspaces (Cassandra) waste — provisioned tables far above consumed capacity, and capacity-mode mismatches.",
+      "approach": [
+        "List keyspaces and tables (`keyspaces list-keyspaces`, `keyspaces list-tables`, `keyspaces get-table`).",
+        "For provisioned tables compare provisioned vs consumed capacity from CloudWatch over the lookback window.",
+        "Flag capacity-mode mismatches (steady vs spiky) and missing autoscaling."
+      ],
+      "levers": "capacity-mode fit, provisioned overshoot, missing autoscaling"
+    },
+    {
+      "key": "timestream",
+      "agent": "cost-timestream",
+      "title": "Timestream Cost Optimization",
+      "skill": "timestream-troubleshooting",
+      "lookback": true,
+      "goal": "Find Timestream waste — tables with long memory-store retention (expensive) that could move to magnetic sooner, and idle databases.",
+      "approach": [
+        "List databases and tables (`timestream-write list-databases`, `list-tables`, `describe-table`).",
+        "Review memory-store vs magnetic-store retention; flag long memory retention that inflates cost.",
+        "Read ingestion/query metrics from CloudWatch over the lookback window to spot idle tables."
+      ],
+      "levers": "memory-store retention tuning, idle tables"
+    },
+    {
+      "key": "efs",
+      "agent": "cost-efs",
+      "title": "EFS Cost Optimization",
+      "skill": "efs-troubleshooting",
+      "goal": "Find EFS waste — file systems without lifecycle management to Infrequent Access, idle/unmounted file systems, and Provisioned Throughput that exceeds usage.",
+      "approach": [
+        "List file systems (`efs describe-file-systems`) and lifecycle config (`efs describe-lifecycle-configuration`).",
+        "Flag file systems with no lifecycle policy to move cold data to IA/Archive.",
+        "Read `TotalIOBytes`, `ClientConnections` from CloudWatch to spot idle file systems.",
+        "Flag Provisioned throughput mode where Bursting/Elastic would be cheaper."
+      ],
+      "levers": "missing IA lifecycle, idle file systems, throughput-mode fit"
+    },
+    {
+      "key": "fsx",
+      "agent": "cost-fsx",
+      "title": "FSx Cost Optimization",
+      "skill": "fsx-troubleshooting",
+      "goal": "Find FSx waste — over-provisioned storage and throughput capacity, idle file systems, and deployment types richer than needed.",
+      "approach": [
+        "List file systems (`fsx describe-file-systems`) across Lustre/Windows/ONTAP/OpenZFS.",
+        "Review provisioned storage and throughput capacity against usage metrics from CloudWatch.",
+        "Flag idle file systems and Multi-AZ where Single-AZ may suffice."
+      ],
+      "levers": "storage/throughput rightsizing, idle file systems, deployment-type review"
+    },
+    {
+      "key": "backup",
+      "agent": "cost-backup",
+      "title": "AWS Backup Cost Optimization",
+      "skill": "backup-troubleshooting",
+      "goal": "Find AWS Backup waste — recovery points retained far beyond policy, orphaned recovery points from deleted resources, and cross-region copies that may be unnecessary.",
+      "approach": [
+        "List backup vaults and recovery points (`backup list-backup-vaults`, `backup list-recovery-points-by-backup-vault`).",
+        "Flag recovery points far older than their backup plan retention and points whose source resource no longer exists.",
+        "Review cross-region/cross-account copy jobs for necessity."
+      ],
+      "levers": "over-retention, orphaned recovery points, redundant copies"
+    },
+    {
+      "key": "storage-gateway",
+      "agent": "cost-storage-gateway",
+      "title": "Storage Gateway Cost Optimization",
+      "skill": "storagegateway-troubleshooting",
+      "lookback": true,
+      "goal": "Find Storage Gateway waste — idle gateways with no I/O and over-provisioned cache/upload buffer.",
+      "approach": [
+        "List gateways and volumes (`storagegateway list-gateways`, `list-volumes`, `list-file-shares`).",
+        "Read I/O and cache-hit metrics from CloudWatch over the lookback window; flag idle gateways.",
+        "Flag oversized cache/upload buffer relative to usage."
+      ],
+      "levers": "idle gateways, cache rightsizing"
+    },
+    {
+      "key": "global-accelerator",
+      "agent": "cost-global-accelerator",
+      "title": "Global Accelerator Cost Optimization",
+      "skill": "globalaccelerator-troubleshooting",
+      "lookback": true,
+      "goal": "Find Global Accelerator waste — accelerators with no healthy endpoints or negligible traffic still incurring the fixed hourly charge.",
+      "approach": [
+        "List accelerators, listeners, endpoint groups (`globalaccelerator list-accelerators`, `list-listeners`, `list-endpoint-groups`).",
+        "Read traffic/flow metrics from CloudWatch over the lookback window; flag accelerators with near-zero traffic.",
+        "Flag accelerators with no healthy endpoints."
+      ],
+      "levers": "idle accelerators, unused endpoint groups"
+    },
+    {
+      "key": "transit-gateway",
+      "agent": "cost-transit-gateway",
+      "title": "Transit Gateway Cost Optimization",
+      "skill": "transitgateway-troubleshooting",
+      "lookback": true,
+      "goal": "Find Transit Gateway waste — attachments with negligible traffic still billing hourly, and blackhole/unused attachments.",
+      "approach": [
+        "List transit gateways and attachments (`ec2 describe-transit-gateways`, `describe-transit-gateway-attachments`).",
+        "Read per-attachment traffic from CloudWatch over the lookback window; flag attachments with near-zero traffic.",
+        "Flag attachments to deleted/unused VPCs and blackhole routes."
+      ],
+      "levers": "idle attachments, unused/blackhole attachments"
+    },
+    {
+      "key": "vpc-endpoints",
+      "agent": "cost-vpc-endpoints",
+      "title": "VPC Endpoints / PrivateLink Cost Optimization",
+      "skill": "privatelink-troubleshooting",
+      "lookback": true,
+      "goal": "Find VPC endpoint waste — interface endpoints with no traffic billing hourly per-AZ, and redundant endpoints across subnets/AZs.",
+      "approach": [
+        "List endpoints (`ec2 describe-vpc-endpoints`).",
+        "Read per-endpoint traffic from CloudWatch (`VpcEndpoint` / PrivateLink metrics) over the lookback window; flag idle interface endpoints.",
+        "Flag duplicate endpoints for the same service and over-broad AZ coverage."
+      ],
+      "levers": "idle interface endpoints, redundant AZ coverage"
+    },
+    {
+      "key": "dx-vpn",
+      "agent": "cost-dx-vpn",
+      "title": "Direct Connect / VPN Cost Optimization",
+      "skill": "dx-vpn-troubleshooting",
+      "lookback": true,
+      "goal": "Find Direct Connect / VPN waste — VPN connections with tunnels down or no traffic still billing hourly, and idle DX virtual interfaces.",
+      "approach": [
+        "List VPN connections (`ec2 describe-vpn-connections`) and DX connections/VIFs (`directconnect describe-connections`, `describe-virtual-interfaces`).",
+        "Read tunnel state and traffic from CloudWatch over the lookback window; flag idle/down VPNs.",
+        "Flag DX virtual interfaces with negligible traffic."
+      ],
+      "levers": "idle VPN connections, unused DX virtual interfaces"
+    },
+    {
+      "key": "cloudfront",
+      "agent": "cost-cloudfront",
+      "title": "CloudFront Cost Optimization",
+      "skill": "cloudfront-troubleshooting",
+      "lookback": true,
+      "goal": "Find CloudFront waste — distributions with low cache-hit ratios (inflating origin transfer), disabled/unused distributions, and price-class mismatches.",
+      "approach": [
+        "List distributions (`cloudfront list-distributions`).",
+        "Read `Requests`, `BytesDownloaded`, and cache-hit-rate metrics from CloudWatch over the lookback window.",
+        "Flag low cache-hit distributions, enabled-but-idle distributions, and price classes broader than the audience needs."
+      ],
+      "levers": "low cache-hit ratio, idle distributions, price-class fit"
+    },
+    {
+      "key": "route53",
+      "agent": "cost-route53",
+      "title": "Route 53 Cost Optimization",
+      "skill": "route53-troubleshooting",
+      "goal": "Find Route 53 waste — health checks attached to nothing, and hosted zones for domains no longer in use.",
+      "approach": [
+        "List hosted zones and health checks (`route53 list-hosted-zones`, `route53 list-health-checks`).",
+        "Flag health checks not referenced by any record set (each bills monthly).",
+        "Flag hosted zones with only default records (candidates for cleanup) — report as evidence, never assume safe to delete."
+      ],
+      "levers": "orphaned health checks, unused hosted zones"
+    },
+    {
+      "key": "emr",
+      "agent": "cost-emr",
+      "title": "EMR Cost Optimization",
+      "skill": "emr-troubleshooting",
+      "lookback": true,
+      "goal": "Find EMR waste — long-running idle clusters, On-Demand core/task groups that could be Spot, and clusters without managed scaling.",
+      "approach": [
+        "List clusters (`emr list-clusters --active`) and instance groups/fleets (`emr describe-cluster`, `list-instance-groups`).",
+        "Read YARN/CPU utilization from CloudWatch over the lookback window; flag idle long-running clusters.",
+        "Flag On-Demand task groups that suit Spot and clusters without managed scaling."
+      ],
+      "levers": "idle clusters, Spot for task nodes, managed scaling"
+    },
+    {
+      "key": "glue",
+      "agent": "cost-glue",
+      "title": "Glue Cost Optimization",
+      "skill": "glue-troubleshooting",
+      "goal": "Find Glue waste — jobs over-allocated on DPUs/workers, jobs with excessive timeouts, and development endpoints left running.",
+      "approach": [
+        "List jobs and dev endpoints (`glue list-jobs`, `glue get-job`, `glue get-dev-endpoints`).",
+        "Review worker type / number of workers vs job run metrics (`glue get-job-runs` DPUSeconds/executionTime).",
+        "Flag over-allocated jobs and any running development endpoints."
+      ],
+      "levers": "DPU/worker rightsizing, running dev endpoints, autoscaling"
+    },
+    {
+      "key": "athena",
+      "agent": "cost-athena",
+      "title": "Athena Cost Optimization",
+      "skill": "athena-troubleshooting",
+      "goal": "Find Athena waste — workgroups with no per-query data-scanned limit, and heavy full-scan query patterns that partitioning/compression would reduce.",
+      "approach": [
+        "List workgroups (`athena list-work-groups`, `athena get-work-group`).",
+        "Flag workgroups without `BytesScannedCutoffPerQuery` limits or result-reuse enabled.",
+        "Review recent queries (`athena list-query-executions`, `get-query-execution` DataScannedInBytes) for high-scan patterns."
+      ],
+      "levers": "per-query scan limits, result reuse, partitioning/compression guidance"
+    },
+    {
+      "key": "kinesis",
+      "agent": "cost-kinesis",
+      "title": "Kinesis Cost Optimization",
+      "skill": "kinesis-troubleshooting",
+      "lookback": true,
+      "goal": "Find Kinesis waste — provisioned Data Streams with far more shards than throughput needs, idle streams, and enhanced fan-out consumers no longer used.",
+      "approach": [
+        "List streams (`kinesis list-streams`, `describe-stream-summary`).",
+        "Read `IncomingBytes`/`IncomingRecords` vs shard count from CloudWatch over the lookback window; flag over-sharded and idle streams.",
+        "Flag registered enhanced fan-out consumers with no activity; consider on-demand mode for spiky low volume."
+      ],
+      "levers": "shard rightsizing, on-demand mode, unused fan-out consumers, idle streams"
+    },
+    {
+      "key": "msk",
+      "agent": "cost-msk",
+      "title": "MSK Cost Optimization",
+      "skill": "msk-troubleshooting",
+      "lookback": true,
+      "goal": "Find MSK waste — over-provisioned broker instance types and counts, over-allocated storage, and idle clusters.",
+      "approach": [
+        "List clusters (`kafka list-clusters`, `describe-cluster`).",
+        "Read broker CPU, disk usage, and throughput from CloudWatch over the lookback window; flag over-provisioned brokers and idle clusters.",
+        "Flag over-allocated broker storage; consider Serverless for spiky low volume."
+      ],
+      "levers": "broker rightsizing, storage tuning, Serverless candidates, idle clusters"
+    },
+    {
+      "key": "opensearch",
+      "agent": "cost-opensearch",
+      "title": "OpenSearch Cost Optimization",
+      "skill": "opensearch-troubleshooting",
+      "lookback": true,
+      "goal": "Find OpenSearch waste — over-provisioned data/master node counts and types, no UltraWarm/cold tiering for old indices, and idle domains.",
+      "approach": [
+        "List domains (`opensearch list-domain-names`, `describe-domain`).",
+        "Read CPU, JVM memory, search/index rate, and storage from CloudWatch over the lookback window; flag over-provisioned and idle domains.",
+        "Flag hot-only storage for old indices that could use UltraWarm/cold; consider Serverless for spiky workloads."
+      ],
+      "levers": "node rightsizing, UltraWarm/cold tiering, idle domains"
+    },
+    {
+      "key": "mwaa",
+      "agent": "cost-mwaa",
+      "title": "MWAA (Airflow) Cost Optimization",
+      "skill": "mwaa-troubleshooting",
+      "lookback": true,
+      "goal": "Find MWAA waste — environments sized larger than DAG load requires, high min-worker floors, and idle environments.",
+      "approach": [
+        "List environments (`mwaa list-environments`, `get-environment`).",
+        "Read scheduler/worker CPU and task metrics from CloudWatch over the lookback window.",
+        "Flag oversized environment class, high MinWorkers floors, and environments with negligible DAG activity."
+      ],
+      "levers": "environment-class rightsizing, min-worker floor, idle environments"
+    },
+    {
+      "key": "api-gateway",
+      "agent": "cost-api-gateway",
+      "title": "API Gateway Cost Optimization",
+      "skill": "apigateway-troubleshooting",
+      "lookback": true,
+      "goal": "Find API Gateway waste — idle APIs still deployed, REST APIs with caching enabled but low hit value, and REST-vs-HTTP API cost mismatches.",
+      "approach": [
+        "List REST and HTTP APIs (`apigateway get-rest-apis`, `apigatewayv2 get-apis`) and stages.",
+        "Read `Count`, `CacheHitCount`/`CacheMissCount` from CloudWatch over the lookback window; flag idle APIs.",
+        "Flag REST stages with provisioned cache and low hit rates, and simple REST APIs that would be cheaper as HTTP APIs."
+      ],
+      "levers": "idle APIs, cache review, REST-to-HTTP candidates"
+    },
+    {
+      "key": "step-functions",
+      "agent": "cost-step-functions",
+      "title": "Step Functions Cost Optimization",
+      "skill": "stepfunctions-troubleshooting",
+      "lookback": true,
+      "goal": "Find Step Functions waste — high-volume Standard workflows that would be far cheaper as Express, and idle state machines.",
+      "approach": [
+        "List state machines (`stepfunctions list-state-machines`, `describe-state-machine`) and their type.",
+        "Read execution counts from CloudWatch over the lookback window.",
+        "Flag high-volume short-duration Standard workflows as Express candidates, and state machines with no executions."
+      ],
+      "levers": "Standard-to-Express candidates, idle state machines"
+    },
+    {
+      "key": "sqs-sns",
+      "agent": "cost-sqs-sns",
+      "title": "SQS / SNS Cost Optimization",
+      "skill": "eventdriven-troubleshooting",
+      "lookback": true,
+      "goal": "Find SQS/SNS waste — empty/unused queues and topics still polled by consumers, and aggressive short-poll patterns driving request cost.",
+      "approach": [
+        "List queues and topics (`sqs list-queues`, `sns list-topics`).",
+        "Read `NumberOfMessagesSent`/`NumberOfMessagesReceived` and SNS publish metrics from CloudWatch over the lookback window; flag unused queues/topics.",
+        "Flag queues with zero `ReceiveMessageWaitTimeSeconds` (short polling) that inflate request counts."
+      ],
+      "levers": "unused queues/topics, long-polling adoption"
+    },
+    {
+      "key": "appsync",
+      "agent": "cost-appsync",
+      "title": "AppSync Cost Optimization",
+      "skill": "appsync-troubleshooting",
+      "lookback": true,
+      "goal": "Find AppSync waste — idle GraphQL APIs, over-provisioned server-side caches, and N+1 resolver patterns inflating request volume.",
+      "approach": [
+        "List GraphQL APIs (`appsync list-graphql-apis`) and cache config (`appsync get-api-cache`).",
+        "Read request/latency metrics from CloudWatch over the lookback window; flag idle APIs.",
+        "Flag oversized cache instance types and resolver patterns that multiply requests."
+      ],
+      "levers": "idle APIs, cache rightsizing, resolver efficiency"
+    },
+    {
+      "key": "sagemaker",
+      "agent": "cost-sagemaker",
+      "title": "SageMaker Cost Optimization",
+      "skill": "sagemaker-troubleshooting",
+      "lookback": true,
+      "goal": "Find SageMaker waste — always-on real-time endpoints with low invocation volume, running notebook instances left idle, and over-provisioned instance types.",
+      "approach": [
+        "List endpoints, notebook instances, and apps (`sagemaker list-endpoints`, `list-notebook-instances`, `describe-endpoint`).",
+        "Read `Invocations` and instance CPU/GPU utilization from CloudWatch over the lookback window.",
+        "Flag low-traffic endpoints (serverless/async candidates), idle running notebooks, and oversized instance types."
+      ],
+      "levers": "idle endpoints, serverless/async candidates, idle notebooks, instance rightsizing"
+    },
+    {
+      "key": "bedrock",
+      "agent": "cost-bedrock",
+      "title": "Bedrock Cost Optimization",
+      "skill": "bedrock-troubleshooting",
+      "lookback": true,
+      "goal": "Find Bedrock waste — Provisioned Throughput model units running below utilization, and idle provisioned commitments.",
+      "approach": [
+        "List provisioned model throughput (`bedrock list-provisioned-model-throughputs`, `get-provisioned-model-throughput`).",
+        "Read model invocation metrics from CloudWatch over the lookback window; compare against provisioned model units.",
+        "Flag provisioned throughput running well below capacity, and idle commitments that on-demand would serve cheaper."
+      ],
+      "levers": "provisioned-throughput rightsizing, on-demand vs provisioned fit"
+    },
+    {
+      "key": "cloudwatch-logs",
+      "agent": "cost-cloudwatch-logs",
+      "title": "CloudWatch Logs Cost Optimization",
+      "skill": "cloudwatch-troubleshooting",
+      "goal": "Find CloudWatch cost waste — log groups with no retention (never expire), very high ingestion groups, and unused custom metrics/dashboards.",
+      "approach": [
+        "List log groups (`logs describe-log-groups`) and their retention and stored bytes.",
+        "Flag log groups with retention never-expire and the highest stored-bytes / ingestion groups.",
+        "Flag high dashboard/custom-metric counts as review items."
+      ],
+      "levers": "log retention policies, high-ingestion groups, unused metrics/dashboards"
+    }
+  ]
+}

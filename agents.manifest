@@ -1,0 +1,61 @@
+# Cost optimization agent catalog manifest
+# One line per agent: <stack-suffix>=<template-file>
+# Comment out any agent you do not want deploy.sh to deploy by default.
+
+# --- Resource-level agents (cross-service waste; hand-written templates) ---
+unattached-ebs-volumes=unattached-ebs-volumes.yaml
+unassociated-elastic-ips=unassociated-elastic-ips.yaml
+old-ebs-snapshots=old-ebs-snapshots.yaml
+idle-ec2-instances=idle-ec2-instances.yaml
+unused-load-balancers=unused-load-balancers.yaml
+idle-rds-instances=idle-rds-instances.yaml
+orphaned-resources=orphaned-resources.yaml
+rightsizing-compute-optimizer=rightsizing-compute-optimizer.yaml
+s3-storage-optimization=s3-storage-optimization.yaml
+serverless-overprovisioning=serverless-overprovisioning.yaml
+
+# --- Per-service agents (generated from services.json) ---
+eks-clusters=eks-clusters.yaml
+ecs-fargate=ecs-fargate.yaml
+auto-scaling-groups=auto-scaling-groups.yaml
+elastic-beanstalk=elastic-beanstalk.yaml
+batch=batch.yaml
+lightsail=lightsail.yaml
+aurora=aurora.yaml
+rds-mysql=rds-mysql.yaml
+rds-postgresql=rds-postgresql.yaml
+rds-mariadb=rds-mariadb.yaml
+rds-oracle=rds-oracle.yaml
+rds-sqlserver=rds-sqlserver.yaml
+dynamodb=dynamodb.yaml
+elasticache=elasticache.yaml
+memorydb=memorydb.yaml
+redshift=redshift.yaml
+documentdb=documentdb.yaml
+neptune=neptune.yaml
+keyspaces=keyspaces.yaml
+timestream=timestream.yaml
+efs=efs.yaml
+fsx=fsx.yaml
+backup=backup.yaml
+storage-gateway=storage-gateway.yaml
+global-accelerator=global-accelerator.yaml
+transit-gateway=transit-gateway.yaml
+vpc-endpoints=vpc-endpoints.yaml
+dx-vpn=dx-vpn.yaml
+cloudfront=cloudfront.yaml
+route53=route53.yaml
+emr=emr.yaml
+glue=glue.yaml
+athena=athena.yaml
+kinesis=kinesis.yaml
+msk=msk.yaml
+opensearch=opensearch.yaml
+mwaa=mwaa.yaml
+api-gateway=api-gateway.yaml
+step-functions=step-functions.yaml
+sqs-sns=sqs-sns.yaml
+appsync=appsync.yaml
+sagemaker=sagemaker.yaml
+bedrock=bedrock.yaml
+cloudwatch-logs=cloudwatch-logs.yaml

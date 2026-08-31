@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  AWS DevOps Agent custom agent (read-only) that finds unassociated / idle
+  Elastic IPs and estimates their monthly cost. Deployed as its own stack so it
+  can be picked independently from the cost-optimizer catalog.
+
+Parameters:
+  AgentSpaceId:
+    Type: String
+    Description: The ID of the Agent Space that will own this custom agent.
+  ScheduleExpression:
+    Type: String
+    Default: rate(7 days)
+    Description: EventBridge rate() or cron() expression for the recurring run.
+  TriggerStatus:
+    Type: String
+    Default: Active
+    AllowedValues: [Active, Inactive]
+    Description: Set Inactive to deploy the agent without running it on a schedule.
+
+Resources:
+  Agent:
+    Type: AWS::DevOpsAgent::Asset
+    Properties:
+      AgentSpaceId: !Ref AgentSpaceId
+      AssetType: custom_agent
+      Metadata:
+        name: cost-unassociated-elastic-ips
+        tools:
+          - use_aws
+          - query_cloudwatch_logs
+      Files:
+        - Path: AGENT.md
+          ContentText: |
+            You are the Elastic IP cost agent. You observe and recommend; you
+            never change anything.
+
+            ## Goal
+            Find Elastic IPs that incur idle charges — those with no
+            `AssociationId`, or associated with a stopped instance — across the
+            associated accounts and in-scope regions, and estimate the monthly
+            cost of each.
+
+            ## Approach
+            1. Enumerate opted-in regions with `ec2 describe-regions` unless the
+               user narrows scope. Scan each region.
+            2. In each region and account, list addresses:
+               `ec2 describe-addresses`.
+            3. Flag EIPs with no `AssociationId`. For EIPs associated with an
+               instance, cross-check `ec2 describe-instances` and flag those on
+               a stopped instance.
+            4. For each finding capture: allocation ID, public IP, region,
+               account ID, association state. Estimate the idle monthly cost
+               from the current public per-hour idle EIP rate for the region.
+               Query `pricing get-products` when a precise figure is needed.
+
+            ## Constraints
+            - Read-only only: run only `describe*`, `list*`, `get*`. Never
+              release, associate, disassociate, or otherwise mutate anything.
+            - Always assume production. Report candidates with the evidence
+              behind each; never assume an EIP is safe to release.
+            - Record account ID and region on every finding.
+            - Continue on errors: note missing-permission failures in Caveats
+              and keep scanning.
+            - Do NOT include Savings Plans or Reserved Instance recommendations.
+
+            ## Output
+            Produce a single artifact titled "Unassociated Elastic IPs — Cost
+            Report" with:
+            1. Executive summary — total estimated monthly and annual savings,
+               count of EIPs, accounts and regions scanned.
+            2. Findings table sorted by estimated monthly savings (highest
+               first): allocation ID, public IP, region, account ID, association
+               state, estimated monthly savings, estimated annual savings, and a
+               short recommended (non-executed) action.
+            3. Suggested manual actions — optional, clearly labeled
+               "suggested manual actions — not executed". Text only.
+            4. Caveats — data gaps, missing permissions, estimation assumptions.
+
+  Schedule:
+    Type: AWS::DevOpsAgent::Trigger
+    Properties:
+      AgentSpaceId: !Ref AgentSpaceId
+      Type: TIME_BASED
+      Condition:
+        Schedule:
+          Expression: !Ref ScheduleExpression
+      Action:
+        actionType: create:task
+        task:
+          agent: !Sub
+            - custom:${AssetId}
+            - AssetId: !GetAtt Agent.AssetId
+      Status: !Ref TriggerStatus
+
+Outputs:
+  AgentAssetId:
+    Description: The asset ID of the deployed custom agent.
+    Value: !GetAtt Agent.AssetId
+  AgentArn:
+    Description: The ARN of the deployed custom agent.
+    Value: !GetAtt Agent.Arn
