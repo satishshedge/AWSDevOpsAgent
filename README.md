@@ -239,3 +239,13 @@ aws cloudformation delete-stack \
 | `ScheduleExpression` | How often the agent runs (`rate()` / `cron()`, UTC). | `rate(7 days)` |
 | `TriggerStatus` | `Active` runs on schedule; `Inactive` installs without auto-running. | `Active` |
 | `LookbackDays` | Days of CloudWatch data for utilization checks (agents that use metrics). | `14` |
+
+## What it looks like after deployment
+
+Once you've deployed the stacks, the agents appear in the **Custom Agents**
+section of the Agents page in your AWS DevOps Agent web app — each one named
+after the agent it installed (`cost-unattached-ebs-volumes`,
+`cost-old-ebs-snapshots`, and so on). Use **View** to open an agent and read its
+latest cost optimization report, or chat with it to run it on demand.
+
+![Cost optimization custom agents listed in the AWS DevOps Agent web app after deployment](Custom_Agent.png)
