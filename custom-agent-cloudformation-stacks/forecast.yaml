@@ -131,6 +131,13 @@ Resources:
               without a timestamped title is incorrect output.
             - **Always lead the report with the tentative-cost disclaimer.** Never present
               projected savings as guaranteed or as billed amounts.
+            - **Artifact persistence is mandatory.** Use the built-in artifact tools to
+              create exactly one persistent artifact for every completed invocation. Do not
+              finish with only a text response in the trajectory.
+            - Create the artifact even when no optimization findings exist or a required
+              data source is unavailable: create a zero-findings or partial-data report with
+              the explanation in Caveats. Do not skip artifact creation because a scan is
+              empty, Cost Explorer is denied, or a service API returns no resources.
             - Continue on errors: if `ce:GetCostAndUsage` is denied, note it in Caveats, fall
               back to Price List, and keep going rather than failing the run.
             - Do NOT include Savings Plans or Reserved Instance purchase recommendations; this
@@ -146,6 +153,13 @@ Resources:
             substituting the actual date and time at which this run started (for example
             "Forecast Optimization Report - 2026-09-02 14:35 UTC"). Never emit the title without
             the timestamp, and never reuse a previous run's timestamp.
+
+            **Artifact persistence gate (mandatory):** after gathering data, call the
+            built-in `create_artifact` tool to persist the report with the exact timestamped
+            title above. Use `compose_table_element` for the findings table when available.
+            Only return a text summary after `create_artifact` has succeeded and the
+            invocation trajectory contains the artifact link. A text-only report does not
+            satisfy this Output section.
 
             The artifact contains:
 

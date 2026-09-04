@@ -132,7 +132,7 @@ Resources:
               without a timestamped title is incorrect output.
             - **Always lead the report with the tentative-cost disclaimer.** Never present
               projected savings as guaranteed or as billed amounts.
-            - **Artifact persistence is mandatory.** Use the built-in artifact capability to
+            - **Artifact persistence is mandatory.** Use the built-in artifact tools to
               create exactly one persistent artifact for every completed invocation. Do not
               finish with only a text response in the trajectory.
             - Create the artifact even when no optimization findings exist or a required
@@ -155,10 +155,12 @@ Resources:
             "S3 Optimization Report - 2026-09-02 14:35 UTC"). Never emit the title without
             the timestamp, and never reuse a previous run's timestamp.
 
-            **Artifact persistence gate (mandatory):** after gathering data and before
-            ending the invocation, create the persistent artifact using the built-in
-            artifact capability. The invocation is not complete until the trajectory shows
-            the artifact link. A text-only summary does not satisfy this Output section.
+            **Artifact persistence gate (mandatory):** after gathering data, call the
+            built-in `create_artifact` tool to persist the report with the exact timestamped
+            title above. Use `compose_table_element` for the findings table when available.
+            Only return a text summary after `create_artifact` has succeeded and the
+            invocation trajectory contains the artifact link. A text-only report does not
+            satisfy this Output section.
 
             The artifact contains:
 
