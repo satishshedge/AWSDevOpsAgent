@@ -10,34 +10,48 @@ observe and recommend — they never change, stop, or delete anything.
 
 ## Repository contents
 
-| Folder | What it is | Status |
+| Folder | What it is | Best for |
 |---|---|---|
-| [`custom-agents-v1/`](custom-agents-v1/) | The current catalog — **54 agents** (10 cross-service resource-level checks + 44 per-service). Deployable today. | ✅ Ready to use |
-| [`custom-agents-cost-optimization/`](custom-agents-cost-optimization/) | Next-generation catalog expanding to **full AWS service coverage**, with Cost Explorer based (bill-accurate) costing. | 🚧 In development |
+| [`custom-agent-cloudformation-stacks/`](custom-agent-cloudformation-stacks/) | **187 deployment-only CloudFormation stacks**, plus the manifest and batch deployment helper. | Creating complete agents with tools and schedules through IaC. |
+| [`custom-agent-prompts/`](custom-agent-prompts/) | **187 GitHub-importable Markdown prompts**, one per service. | Creating an agent interactively from the DevOps Agent web app. |
+| [`custom-agents-v1/`](custom-agents-v1/) | Earlier 54-agent catalog using list-price oriented prompts. | Existing v1 users and backward compatibility. |
+| [`custom-agents-cost-optimization/`](custom-agents-cost-optimization/) | Full 187-service Cost Explorer catalog source. | Catalog source and advanced maintenance. |
 
-**Start here:** [`custom-agents-v1/`](custom-agents-v1/) — see its
-[README](custom-agents-v1/README.md) for the agent list, deployment commands,
-and scheduling options.
+## Choose an end-user option
 
-## Quick start
+### Option 1: deploy a CloudFormation stack
+
+Use [`custom-agent-cloudformation-stacks/`](custom-agent-cloudformation-stacks/)
+when you want the complete agent, tool selection, and schedule created in one
+CloudFormation deployment.
 
 ```bash
 git clone https://github.com/satishshedge/AWSDevOpsAgent
-cd AWSDevOpsAgent/custom-agents-v1
+cd AWSDevOpsAgent/custom-agent-cloudformation-stacks
 
-# See the available agents
+# See the available service keys
 ./deploy.sh --list
 
 # Deploy one agent
 aws cloudformation deploy \
-  --template-file unattached-ebs-volumes.yaml \
-  --stack-name devops-agent-cost-unattached-ebs-volumes \
+  --template-file ec2-instances.yaml \
+  --stack-name devops-agent-costopt-ec2-instances \
   --parameter-overrides AgentSpaceId=<AGENT_SPACE_ID> \
   --region <REGION>
 ```
 
-Full deployment, scheduling, and management instructions are in the
-[`custom-agents-v1/` README](custom-agents-v1/README.md).
+### Option 2: import a GitHub prompt
+
+Use [`custom-agent-prompts/`](custom-agent-prompts/) when you want to create an
+agent from the DevOps Agent web app. For example, import:
+
+```text
+https://raw.githubusercontent.com/satishshedge/AWSDevOpsAgent/main/custom-agent-prompts/ec2-instances.md
+```
+
+After import, use the agent's Chat experience to attach `use_aws` and
+`query_cloudwatch_logs`. The prompt catalog README has the full import and tool
+selection instructions.
 
 ## Prerequisites
 
